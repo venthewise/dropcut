@@ -1,0 +1,14 @@
+node_modules/
+dist/
+outputs/
+uploads/
+.grok/
+grok*.log
+*.err
+prompt.txt
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.mp4
+*.log

@@ -1,0 +1,24 @@
+{
+  "placeholder": false,
+  "description": "LTX-2.5 22B distilled image-to-video with generated audio (Comfy Cloud export). Frames = duration * fps + 1 is computed inside the graph (node 398:378), so DropCut sets whole-second duration and fps only. The graph's own audio track is stripped; DropCut uses the user's song.",
+  "fps": 24,
+  "aspect": "9:16 (Portrait Widescreen)",
+  "enhancePrompt": false,
+  "durationMinSeconds": 1,
+  "durationMaxSeconds": 10,
+  "outputHasAudio": true,
+  "bindings": {
+    "image": { "nodeId": "395", "input": "image" },
+    "positive": { "nodeId": "398:376", "input": "value" },
+    "negative": { "nodeId": "398:373", "input": "text" },
+    "seed": [
+      { "nodeId": "398:339", "input": "noise_seed" },
+      { "nodeId": "398:338", "input": "noise_seed" }
+    ],
+    "duration": { "nodeId": "398:362", "input": "value" },
+    "fps": { "nodeId": "398:361", "input": "value" },
+    "aspect": { "nodeId": "403", "input": "aspect_ratio" },
+    "enhance": { "nodeId": "398:383", "input": "value" },
+    "output": { "nodeId": "75" }
+  }
+}

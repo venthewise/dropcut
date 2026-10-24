@@ -1,0 +1,18 @@
+{
+  "placeholder": true,
+  "todo": "Paolo must export his real LTX image-to-video workflow from Comfy Cloud via \"Export (API)\" and fill in this map: node id + input name for the input image, positive prompt, negative prompt, seed, frame count/length, width, height, fps, and which node is the output.",
+  "width": 768,
+  "height": 1344,
+  "fps": 24,
+  "bindings": {
+    "image": { "nodeId": "1", "input": "image" },
+    "positive": { "nodeId": "2", "input": "text" },
+    "negative": { "nodeId": "3", "input": "text" },
+    "seed": { "nodeId": "4", "input": "seed" },
+    "frames": { "nodeId": "4", "input": "length" },
+    "width": { "nodeId": "4", "input": "width" },
+    "height": { "nodeId": "4", "input": "height" },
+    "fps": { "nodeId": "4", "input": "fps" },
+    "output": { "nodeId": "5" }
+  }
+}

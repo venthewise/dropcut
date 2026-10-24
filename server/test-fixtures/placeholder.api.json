@@ -1,0 +1,64 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "PLACEHOLDER input image — replace this graph"
+    },
+    "inputs": {
+      "image": "placeholder.png"
+    }
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "PLACEHOLDER positive prompt"
+    },
+    "inputs": {
+      "text": "",
+      "clip": ["9", 0]
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "PLACEHOLDER negative prompt"
+    },
+    "inputs": {
+      "text": "",
+      "clip": ["9", 0]
+    }
+  },
+  "4": {
+    "class_type": "PlaceholderLTXImageToVideo",
+    "_meta": {
+      "title": "PLACEHOLDER — not a real LTX node. Export (API) from Comfy Cloud and replace this file."
+    },
+    "inputs": {
+      "image": ["1", 0],
+      "positive": ["2", 0],
+      "negative": ["3", 0],
+      "seed": 0,
+      "length": 97,
+      "width": 768,
+      "height": 1344,
+      "fps": 24
+    }
+  },
+  "5": {
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "PLACEHOLDER output"
+    },
+    "inputs": {
+      "video": ["4", 0],
+      "filename_prefix": "dropcut"
+    }
+  },
+  "9": {
+    "class_type": "PlaceholderCLIP",
+    "_meta": {
+      "title": "PLACEHOLDER clip loader"
+    },
+    "inputs": {}
+  }
+}

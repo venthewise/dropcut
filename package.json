@@ -1,0 +1,36 @@
+{
+  "name": "dropcut",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DropCut — upload stills and a song, cut a vertical reel on the drops.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "cross-env PORT=8787 tsx watch server/index.ts",
+    "dev:web": "vite --port 5173 --strictPort",
+    "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.server.json && vite build",
+    "start": "node dist/server/index.js",
+    "test": "vitest run",
+    "smoke": "tsx scripts/smoke.ts",
+    "export:mock": "cross-env GENERATION_BACKEND=mock tsx scripts/mock-export.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0",
+    "multer": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.15.3",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^5.0.5"
+  }
+}
