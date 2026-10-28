@@ -1,6 +1,6 @@
 # DropCut
 
-DropCut turns 1–3 photos and a song into a vertical 9:16 reel. The browser finds beats and drops, builds a deterministic cut list, and each segment is generated through an adapter. The default path with no API key is a local mock that draws a placeholder plate per look. With a Comfy Cloud key, the same cut list is sent to ComfyUI as an API-format workflow (LTX family, open weights).
+DropCut turns 1–5 photos and a song into a vertical 9:16 reel. The browser finds beats and drops, builds a deterministic cut list, and each segment is generated through an adapter. The default path with no API key is a local mock that draws a placeholder plate per look. With a Comfy Cloud key, the same cut list is sent to ComfyUI as an API-format workflow (LTX family, open weights).
 
 The interface is the Cut Sheet: editorial type, a hard grid, black, paper, and one acid accent.
 
@@ -138,6 +138,22 @@ Mock plates are SVG. Export rasterizes the color blocks to PNG before ffmpeg, be
 Workflow audio is still stripped with the same ffmpeg binary before a segment is saved.
 
 ## Comfy deployment (serverless GPU, scale to zero)
+
+### Recommended: dedicated deployment endpoint
+
+The simplest working setup. Point DropCut straight at your deployment's endpoint. It serves the same v2 API (`Authorization: Bearer`, `POST /api/v2/assets`, `POST /api/v2/jobs`, `GET /api/v2/jobs/{id}`) and is not subject to the shared API's plan gate.
+
+```
+GENERATION_BACKEND=comfy-cloud
+COMFY_CLOUD_API_KEY=comfyui-...
+COMFY_DEPLOYMENT_ENDPOINT=https://<deployment-id>.run.comfy.app
+# DEPLOY_CONTROL=manage   # optional: let DropCut start/stop COMFY_DEPLOYMENT_ID too
+```
+
+- `COMFY_DEPLOYMENT_ENDPOINT` overrides `COMFY_CLOUD_BASE_URL` and always uses API v2.
+- With the endpoint set, `DEPLOY_CONTROL` defaults to `off`: DropCut never starts, stops or reconfigures the deployment, so you manage it (warm time, scale) in the Comfy dashboard. Set `DEPLOY_CONTROL=manage` together with `COMFY_DEPLOYMENT_ID` to get the start/idle-stop behaviour below.
+
+### Managed start/stop via the control plane
 
 When a workspace plan blocks the hosted job API, run the workflow on your own Comfy deployment (built with `comfy build` and `comfy deploy up`, min 0 / max 1). The data plane is the same v2 API, so only the base URL changes:
 
