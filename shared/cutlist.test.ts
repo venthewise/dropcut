@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCutlist, parseCutlist } from "./cutlist";
-import { FPS, MAX_FRAMES, MAX_SEGMENT_SEC } from "./looks";
+import { FPS, MAX_FRAMES, MAX_PHOTOS, MAX_SEGMENT_SEC } from "./looks";
 
 function base(overrides: Partial<Parameters<typeof buildCutlist>[0]> = {}) {
   return buildCutlist({
@@ -83,6 +83,13 @@ describe("buildCutlist", () => {
     expect(cut.segments[0]!.captionCue).toBe("HOLD");
   });
 
+  it("accepts promo and rejects an unknown caption style", () => {
+    const cut = base({ captionStyle: "promo" });
+    expect(cut.captionStyle).toBe("promo");
+    expect(cut.segments.every((seg) => seg.captionStyle === "promo")).toBe(true);
+    expect(() => base({ captionStyle: "nope" })).toThrow(/caption style/i);
+  });
+
   it("rejects a window over 30 seconds and an empty look set", () => {
     expect(() => base({ clipEnd: 31 })).toThrow(/30/);
     expect(() => base({ lookIds: [] })).toThrow(/look/i);
@@ -101,5 +108,21 @@ describe("buildCutlist", () => {
     seg.start += 0.2;
     seg.duration = seg.end - seg.start;
     expect(() => parseCutlist(broken)).toThrow(/gaps|overlaps/i);
+  });
+});
+
+describe("photo cap", () => {
+  it(`accepts up to ${MAX_PHOTOS} photos and cycles through all of them`, () => {
+    const cut = base({ photoCount: MAX_PHOTOS });
+    expect(cut.photoCount).toBe(MAX_PHOTOS);
+    const used = new Set(cut.segments.map((s) => s.photoIndex));
+    expect(used.size).toBe(Math.min(MAX_PHOTOS, cut.segments.length));
+    expect(parseCutlist(JSON.parse(JSON.stringify(cut))).photoCount).toBe(MAX_PHOTOS);
+  });
+  it(`rejects more than ${MAX_PHOTOS} photos`, () => {
+    expect(() => base({ photoCount: MAX_PHOTOS + 1 })).toThrow(/Photo count/);
+    const cut = JSON.parse(JSON.stringify(base()));
+    cut.photoCount = MAX_PHOTOS + 1;
+    expect(() => parseCutlist(cut)).toThrow(/Photo count/);
   });
 });

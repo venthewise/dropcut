@@ -1,4 +1,4 @@
-import type { Transition } from "../shared/looks";
+import { splitPromoCaption, type Transition } from "../shared/looks";
 import { formatTimecode } from "../shared/timecode";
 import { prefersReduced } from "./motion";
 
@@ -60,6 +60,7 @@ export function attachPlayer(opts: {
   const flashTimes: number[] = [];
   const ac = new AbortController();
   const listen = { signal: ac.signal };
+  caption.addEventListener("animationend", () => caption.classList.remove("is-in"), listen);
 
   function segmentAt(time: number): PlayerSegment | undefined {
     return segments.find((seg) => time >= seg.start && time < seg.end) ?? (time >= clipEnd ? segments[segments.length - 1] : segments[0]);
@@ -96,8 +97,17 @@ export function attachPlayer(opts: {
         img.alt = `${seg.caption} plate`;
       }
     }
-    caption.textContent = seg.caption;
-    caption.className = `reel-caption cap-${seg.captionStyle}`;
+    const styleClass = `cap-${seg.captionStyle}`;
+    if (!caption.classList.contains(styleClass)) {
+      caption.className = `reel-caption ${styleClass}`;
+      delete caption.dataset.painted;
+    }
+    paintCaption(seg);
+    if (changed && allowMotion && seg.captionStyle === "promo" && !prefersReduced()) {
+      caption.classList.remove("is-in");
+      void caption.offsetWidth;
+      caption.classList.add("is-in");
+    }
     if (!changed || !allowMotion) return;
     frame.classList.remove("is-flash", "is-whip");
     if (prefersReduced() || seg.transition === "hard") return;
@@ -109,6 +119,28 @@ export function attachPlayer(opts: {
     }
     frame.classList.add("is-whip");
     window.setTimeout(() => frame.classList.remove("is-whip"), 160);
+  }
+
+  function paintCaption(seg: PlayerSegment): void {
+    const key = `${seg.captionStyle}\n${seg.caption}`;
+    if (caption.dataset.painted === key) return;
+    caption.dataset.painted = key;
+    caption.style.fontSize = "";
+    if (seg.captionStyle !== "promo") {
+      caption.textContent = seg.caption;
+      return;
+    }
+    const { head, sub } = splitPromoCaption(seg.caption);
+    caption.replaceChildren(document.createTextNode(head));
+    if (sub) {
+      const line = document.createElement("span");
+      line.className = "promo-sub";
+      line.textContent = sub;
+      caption.append(line);
+    }
+    const longest = Math.max(head.length, sub?.length ?? 0, 1);
+    const px = Math.max(12, Math.min(28, Math.round((230 / longest) * 1.6)));
+    caption.style.fontSize = `${px}px`;
   }
 
   function render(allowMotion: boolean): void {
@@ -200,7 +232,7 @@ export function attachPlayer(opts: {
       const seg = segments.find((item) => item.id === id);
       if (!seg) return;
       seg.caption = text;
-      if (lastId === id) caption.textContent = text;
+      if (lastId === id) paintCaption(seg);
     },
     onTime(cb) {
       timeCb = cb;

@@ -19,6 +19,14 @@ export interface Config {
   deploymentId: string;
   deployControlUrl: string;
   deployIdleStopMs: number;
+  /**
+   * "manage" (default): the app may start/stop COMFY_DEPLOYMENT_ID.
+   * "off": never touch the deployment control plane (someone else manages it).
+   * Forced to "off" when COMFY_DEPLOYMENT_ENDPOINT is set without DEPLOY_CONTROL=manage.
+   */
+  deployControl: "manage" | "off";
+  /** True when jobs go straight to a dedicated https://<dep>.run.comfy.app endpoint. */
+  deploymentEndpoint: boolean;
   /** Final MP4 frame rate. Only 24 or 30. Anything else uses 30. */
   exportFps: 24 | 30;
   /** Empty means no end card. Appended after the song, silent. */
@@ -39,7 +47,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
   if (versionRaw === "v1" || versionRaw === "v2") comfyApiVersion = versionRaw;
   else versionWarning = `COMFY_CLOUD_API_VERSION "${versionRaw}" is not v1 or v2. Using v2.`;
 
-  const base = (env.COMFY_CLOUD_BASE_URL ?? "").trim() || "https://cloud.comfy.org";
+  // A dedicated deployment endpoint serves the same v2 API (Bearer auth, POST /api/v2/assets,
+  // POST /api/v2/jobs) and is not subject to the shared API's plan gate.
+  const endpoint = (env.COMFY_DEPLOYMENT_ENDPOINT ?? "").trim();
+  const base = endpoint || (env.COMFY_CLOUD_BASE_URL ?? "").trim() || "https://cloud.comfy.org";
+  if (endpoint && comfyApiVersion !== "v2") {
+    versionWarning = "COMFY_DEPLOYMENT_ENDPOINT only speaks API v2. Using v2.";
+    comfyApiVersion = "v2";
+  }
+  const controlRaw = (env.DEPLOY_CONTROL ?? "").trim().toLowerCase();
+  const deployControl: "manage" | "off" =
+    controlRaw === "off" || controlRaw === "none" || (endpoint && controlRaw !== "manage") ? "off" : "manage";
 
   return {
     backend,
@@ -56,6 +74,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     versionWarning,
     deploymentId: (env.COMFY_DEPLOYMENT_ID ?? "").trim(),
     deployControlUrl: ((env.COMFY_DEPLOY_URL ?? "").trim() || "https://platformapi.comfy.org/deploy").replace(/\/+$/, ""),
+    deployControl,
+    deploymentEndpoint: Boolean(endpoint),
     deployIdleStopMs: Math.round(Math.max(0, numberOr(env.DEPLOY_IDLE_STOP_MIN, 10)) * 60 * 1000),
     exportFps: exportFps(env.EXPORT_FPS),
     exportEndCardUrl: (env.EXPORT_END_CARD_URL ?? "").trim(),

@@ -9,6 +9,7 @@ import {
   lookById,
   MAX_CLIP_SEC,
   MAX_FRAMES,
+  MAX_PHOTOS,
   MAX_SEGMENT_SEC,
   MIN_SEGMENT_SEC,
   renderPrompt,
@@ -174,8 +175,8 @@ export function buildCutlist(input: CutlistInput): Cutlist {
   if (span > MAX_CLIP_SEC + 0.001) {
     throw new Error(`Clip window must be ${MAX_CLIP_SEC} seconds or less.`);
   }
-  if (!Number.isInteger(input.photoCount) || input.photoCount < 1 || input.photoCount > 3) {
-    throw new Error("Photo count must be 1, 2, or 3.");
+  if (!Number.isInteger(input.photoCount) || input.photoCount < 1 || input.photoCount > MAX_PHOTOS) {
+    throw new Error(`Photo count must be 1 to ${MAX_PHOTOS}.`);
   }
   if (!Array.isArray(input.lookIds) || input.lookIds.length === 0) {
     throw new Error("Pick at least one look.");
@@ -262,8 +263,8 @@ export function parseCutlist(value: unknown): Cutlist {
     throw new Error("Cut list needs between 1 and 64 segments.");
   }
   const photoCount = value.photoCount;
-  if (photoCount !== 1 && photoCount !== 2 && photoCount !== 3) {
-    throw new Error("Photo count must be 1, 2, or 3.");
+  if (typeof photoCount !== "number" || !Number.isInteger(photoCount) || photoCount < 1 || photoCount > MAX_PHOTOS) {
+    throw new Error(`Photo count must be 1 to ${MAX_PHOTOS}.`);
   }
   const clipStart = value.clipStart;
   const clipEnd = value.clipEnd;

@@ -32,6 +32,16 @@ export async function getJob(id: string): Promise<JobResponse> {
   return (await res.json()) as JobResponse;
 }
 
+export async function patchSegmentLook(id: string, segmentId: string, look: string): Promise<JobResponse> {
+  const res = await fetch(`/api/jobs/${id}/segments/${segmentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ look }),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as JobResponse;
+}
+
 export async function retryJob(id: string, segmentIds?: string[]): Promise<JobResponse> {
   const res = await fetch(`/api/jobs/${id}/retry`, {
     method: "POST",

@@ -30,12 +30,28 @@ export class Runner {
 
   run(jobId: string): Promise<void> {
     const existing = this.inflight.get(jobId);
+    if (existing) return existing.then(() => this.runIfQueued(jobId), () => this.runIfQueued(jobId));
+    return this.start(jobId);
+  }
+
+  /** Start a pass when this job is idle and a row is still queued. */
+  private runIfQueued(jobId: string): Promise<void> {
+    if (this.inflight.has(jobId)) return this.inflight.get(jobId)!;
+    const job = this.deps.store.get(jobId);
+    if (!job?.segments.some((seg) => seg.status === "queued")) return Promise.resolve();
+    return this.start(jobId);
+  }
+
+  private start(jobId: string): Promise<void> {
+    const existing = this.inflight.get(jobId);
     if (existing) return existing;
     const controller = new AbortController();
     this.aborts.set(jobId, controller);
     const task = this.execute(jobId, controller.signal).finally(() => {
-      this.inflight.delete(jobId);
-      this.aborts.delete(jobId);
+      if (this.inflight.get(jobId) === task) {
+        this.inflight.delete(jobId);
+        this.aborts.delete(jobId);
+      }
     });
     this.inflight.set(jobId, task);
     return task;
@@ -136,7 +152,14 @@ export class Runner {
       }
     }
     try {
-      await this.runTodo(job, todo, signal);
+      // A look edit during this pass queues one row. Keep going until none are left.
+      while (!signal.aborted) {
+        const live = this.deps.store.get(jobId);
+        if (!live) return;
+        const pending = live.segments.filter((seg) => seg.status === "queued");
+        if (pending.length === 0) break;
+        await this.runTodo(live, pending, signal);
+      }
     } finally {
       if (acquired && deployment) {
         deployment.release();
@@ -184,6 +207,7 @@ export class Runner {
   }
 
   private async runSegment(job: StoredJob, seg: StoredSegment, signal: AbortSignal): Promise<void> {
+    const owns = (ticket: number, cacheKey: string) => seg.attempt === ticket && seg.cacheKey === cacheKey;
     if (signal.aborted) {
       seg.status = "failed";
       seg.error = "Cancelled";
@@ -191,9 +215,20 @@ export class Runner {
       await this.deps.store.save(job);
       return;
     }
-    const cached = await this.deps.store.readCache(seg.cacheKey);
+    const ticket = seg.attempt;
+    const cacheKey = seg.cacheKey;
+    const cached = await this.deps.store.readCache(cacheKey);
+    if (!owns(ticket, cacheKey)) return;
+    if (signal.aborted) {
+      seg.status = "failed";
+      seg.error = "Cancelled";
+      rollup(job);
+      await this.deps.store.save(job);
+      return;
+    }
     if (cached) {
       await this.deps.store.writeSegment(job.id, seg, cached.bytes, cached.contentType);
+      if (!owns(ticket, cacheKey)) return;
       seg.status = "done";
       seg.progress = 1;
       seg.error = undefined;
@@ -206,16 +241,19 @@ export class Runner {
     seg.progress = 0.05;
     rollup(job);
     await this.deps.store.save(job);
+    if (!owns(ticket, cacheKey)) return;
 
     const cut = job.cutlist.segments.find((item) => item.id === seg.id);
     const photo = job.photos.find((item) => item.index === seg.photoIndex);
     if (!cut || !photo) throw new Error(`Segment ${seg.id} is missing its photo or cut.`);
     const bytes = await this.deps.store.readPhoto(job.id, photo);
+    if (!owns(ticket, cacheKey)) return;
     const asset = await this.deps.adapter.uploadAsset({
       filename: photo.filename,
       contentType: photo.contentType,
       bytes,
     });
+    if (!owns(ticket, cacheKey)) return;
     if (signal.aborted) {
       seg.status = "failed";
       seg.error = "Cancelled";
@@ -225,8 +263,8 @@ export class Runner {
     }
     const remote = await this.deps.adapter.submitSegment({
       idempotencyKey: seg.idempotencyKey,
-      cacheKey: seg.cacheKey,
-      attempt: seg.attempt,
+      cacheKey,
+      attempt: ticket,
       image: asset,
       positive: cut.prompt,
       negative: cut.negativePrompt,
@@ -240,8 +278,16 @@ export class Runner {
       duration: cut.duration,
       start: cut.start,
     });
+    if (!owns(ticket, cacheKey)) {
+      void this.deps.adapter.cancel(remote).catch(() => undefined);
+      return;
+    }
     seg.remoteJobId = remote.id;
-    const status = await this.poll(remote, job, seg, signal);
+    const status = await this.poll(remote, job, seg, signal, ticket, cacheKey);
+    if (!owns(ticket, cacheKey)) {
+      void this.deps.adapter.cancel(remote).catch(() => undefined);
+      return;
+    }
     if (status.state !== "done") {
       seg.status = "failed";
       seg.error = status.error || "Generation failed.";
@@ -259,6 +305,10 @@ export class Runner {
       return;
     }
     let file = await this.deps.adapter.fetchOutput(output);
+    if (!owns(ticket, cacheKey)) {
+      void this.deps.adapter.cancel(remote).catch(() => undefined);
+      return;
+    }
     let contentType = output.contentType || sniff(file);
     if (isVideo(contentType, file)) {
       if (!contentType.startsWith("video/")) contentType = file.subarray(4, 8).toString("latin1") === "ftyp" ? "video/mp4" : "video/webm";
@@ -268,7 +318,9 @@ export class Runner {
         file = (await stripAudio(file, ext, this.deps.ffmpegPath)).bytes;
       }
     }
+    if (!owns(ticket, cacheKey)) return;
     await this.deps.store.writeSegment(job.id, seg, file, contentType);
+    if (!owns(ticket, cacheKey)) return;
     seg.status = "done";
     seg.progress = 1;
     seg.error = undefined;
@@ -276,17 +328,28 @@ export class Runner {
     await this.deps.store.save(job);
   }
 
-  private async poll(ref: { id: string; adapter: string }, job: StoredJob, seg: StoredSegment, signal: AbortSignal): Promise<SegmentStatus> {
+  private async poll(
+    ref: { id: string; adapter: string },
+    job: StoredJob,
+    seg: StoredSegment,
+    signal: AbortSignal,
+    ticket: number,
+    cacheKey: string,
+  ): Promise<SegmentStatus> {
     const interval = this.deps.adapter.name === "mock" ? 30 : 1500;
     const deadline = Date.now() + 15 * 60 * 1000;
+    const current = () => seg.attempt === ticket && seg.cacheKey === cacheKey;
     for (;;) {
+      if (!current()) return { state: "queued" };
       if (signal.aborted) return { state: "failed", error: "Cancelled" };
       const status = await this.deps.adapter.getStatus(ref);
+      if (!current()) return { state: "queued" };
       if (status.state === "queued" || status.state === "running") {
         seg.status = status.state;
         if (typeof status.progress === "number") seg.progress = status.progress;
         rollup(job);
         await this.deps.store.save(job);
+        if (!current()) return { state: "queued" };
         if (Date.now() > deadline) return { state: "failed", error: "Timed out waiting for generation." };
         await sleep(interval, signal);
         continue;

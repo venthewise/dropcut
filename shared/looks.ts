@@ -5,6 +5,8 @@ export const MAX_SEGMENT_SEC = MAX_FRAMES / FPS;
 /** Short gaps collapse so a dense drop grid cannot spawn sub-frame clips. */
 export const MIN_SEGMENT_SEC = 0.35;
 export const MAX_CLIP_SEC = 30;
+/** Most photos one job takes. */
+export const MAX_PHOTOS = 5;
 export const DEFAULT_CLIP_SEC = 15;
 
 export const FRAME_WIDTH = 768;
@@ -29,7 +31,42 @@ export const CAPTION_STYLES: CaptionStyle[] = [
   { id: "stamp", label: "Stamp", note: "Tight label, upper left." },
   { id: "lower", label: "Lower third", note: "Left-aligned editorial line." },
   { id: "kick", label: "Kick lock", note: "Centered word that hits on the beat." },
+  { id: "promo", label: "Promo", note: "Tilted price tag. Split with \" | \" for a smaller second line." },
 ];
+
+/**
+ * Promo captions are one or two lines. The break is the first ` | ` or, if
+ * there is none, the first newline. Extra breaks inside a line become spaces.
+ * An empty side is dropped, so a single line still works.
+ */
+export function splitPromoCaption(text: string): { head: string; sub: string | null } {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  let head: string;
+  let rest: string | null;
+  const pipe = normalized.indexOf(" | ");
+  if (pipe >= 0) {
+    head = normalized.slice(0, pipe);
+    rest = normalized.slice(pipe + 3);
+  } else {
+    const nl = normalized.indexOf("\n");
+    if (nl >= 0) {
+      head = normalized.slice(0, nl);
+      rest = normalized.slice(nl + 1);
+    } else {
+      head = normalized;
+      rest = null;
+    }
+  }
+  const clean = (value: string) => value.replace(/[\t\n\r ]+/g, " ").trim();
+  head = clean(head);
+  let sub = rest == null ? null : clean(rest);
+  if (sub != null && sub.length === 0) sub = null;
+  if (!head && sub) {
+    head = sub;
+    sub = null;
+  }
+  return { head, sub };
+}
 
 export interface Look {
   id: string;

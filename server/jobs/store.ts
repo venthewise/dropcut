@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JobStatusName, SegmentStatusName } from "../../shared/api-types";
-import type { CutSegment, Cutlist } from "../../shared/cutlist";
+import { segmentSeed, type CutSegment, type Cutlist } from "../../shared/cutlist";
 import { lookById, renderPrompt } from "../../shared/looks";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -120,8 +120,8 @@ export interface SegmentEdit {
 /**
  * Edit one cut-list row in place.
  * A caption change keeps the finished plate. A look change recomputes the
- * cache key and, on a miss, queues that row so the runner regenerates it.
- * Other rows stay done and are not submitted again.
+ * prompt and the segment seed (same formula as the cut list), then the cache
+ * key. On a miss, only that row is queued. Other rows stay done.
  */
 export function editSegment(job: StoredJob, segmentId: string, edit: SegmentEdit): { requeued: boolean } {
   const cut = job.cutlist.segments.find((seg) => seg.id === segmentId);
@@ -137,13 +137,14 @@ export function editSegment(job: StoredJob, segmentId: string, edit: SegmentEdit
   let requeued = false;
   if (edit.look != null && edit.look !== cut.look) {
     if (!lookById(edit.look)) throw new Error(`Unknown look ${edit.look}.`);
+    const photo = job.photos.find((item) => item.index === stored.photoIndex);
+    if (!photo) throw new Error(`Segment ${segmentId} has no photo.`);
     const prompt = renderPrompt(edit.look);
     cut.look = edit.look;
     cut.prompt = prompt.positive;
     cut.negativePrompt = prompt.negative;
+    cut.seed = segmentSeed(Math.round(job.cutlist.seed), cut.index, edit.look, cut.photoIndex);
     stored.look = edit.look;
-    const photo = job.photos.find((item) => item.index === stored.photoIndex);
-    if (!photo) throw new Error(`Segment ${segmentId} has no photo.`);
     const nextKey = segmentCacheKey({
       photoHash: photo.sha256,
       look: cut.look,
@@ -291,14 +292,17 @@ export class JobStore {
   }
 
   async writeSegment(jobId: string, seg: StoredSegment, bytes: Buffer, contentType: string): Promise<void> {
+    const cacheKey = seg.cacheKey;
     const filename = `${seg.id}${extFor(contentType)}`;
     const dir = path.join(this.root, jobId, "segments");
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, filename), bytes);
     const cacheDir = path.join(this.root, "cache");
     await mkdir(cacheDir, { recursive: true });
-    await writeFile(path.join(cacheDir, `${seg.cacheKey}.bin`), bytes);
-    await writeFile(path.join(cacheDir, `${seg.cacheKey}.json`), JSON.stringify({ contentType }));
+    await writeFile(path.join(cacheDir, `${cacheKey}.bin`), bytes);
+    await writeFile(path.join(cacheDir, `${cacheKey}.json`), JSON.stringify({ contentType }));
+    // A look edit can retarget this row while the file is being written.
+    if (seg.cacheKey !== cacheKey) return;
     seg.filename = filename;
     seg.contentType = contentType;
   }

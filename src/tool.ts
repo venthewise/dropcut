@@ -1,8 +1,8 @@
 import type { DeploymentView, ExportResponse, HealthResponse, JobResponse } from "../shared/api-types";
-import { buildCutlist, defaultWindow, type CutSegment, type Cutlist } from "../shared/cutlist";
-import { CAPTION_STYLES, LOOKS, MAX_CLIP_SEC, TRANSITIONS, type Transition } from "../shared/looks";
+import { buildCutlist, defaultWindow, segmentSeed, type CutSegment, type Cutlist } from "../shared/cutlist";
+import { CAPTION_STYLES, LOOKS, MAX_CLIP_SEC, MAX_PHOTOS, TRANSITIONS, lookById, renderPrompt, type Transition } from "../shared/looks";
 import { formatSeconds, formatTimecode } from "../shared/timecode";
-import { cancelJob, createJob, getExport, getHealth, retryJob, startExport as requestExport, watchJob } from "./api";
+import { cancelJob, createJob, getExport, getHealth, patchSegmentLook, retryJob, startExport as requestExport, watchJob } from "./api";
 import { analyzeFile, type BeatAnalysis } from "./beats";
 import { attachPlayer, type PlayerHandle, type PlayerSegment } from "./player";
 import { drawWaveform } from "./wave";
@@ -25,7 +25,7 @@ export function mountTool(root: HTMLElement): void {
       <label class="drop" id="photo-drop">
         <span class="plate-idx">PLATE A · STILLS</span>
         <strong>Photos</strong>
-        <span class="hint">1 to 3. Drag them in, or use the file control. PNG, JPEG, WebP, GIF.</span>
+        <span class="hint">1 to 5. Drag them in, or use the file control. PNG, JPEG, WebP, GIF.</span>
         <input id="photo-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" multiple>
       </label>
       <label class="drop" id="audio-drop">
@@ -77,7 +77,7 @@ export function mountTool(root: HTMLElement): void {
         <input id="seed" type="number" min="0" max="999999999" step="1" value="1">
       </label>
     </div>
-    <p class="hint">Same photos, window, looks, and seed rebuild the same cut list.</p>
+    <p class="hint">Same photos, window, looks, per-row looks, and seed rebuild the same cuts. Promo is the tilted price tag: write a smaller second line after " | ".</p>
     <div class="table-scroll">
       <table class="edl">
         <caption>Edit decision list</caption>
@@ -171,6 +171,7 @@ export function mountTool(root: HTMLElement): void {
   let transition: Transition = "hard";
   let dropsOverride: number[] | null = null;
   const captionEdits = new Map<string, string>();
+  const lookEdits = new Map<string, string>();
   let cutlist: Cutlist | null = null;
   let job: JobResponse | null = null;
   let health: HealthResponse | null = null;
@@ -204,10 +205,12 @@ export function mountTool(root: HTMLElement): void {
   }
 
   for (const style of CAPTION_STYLES) {
-    captionBox.append(choice("caption-style", style.id, style.label, style.id === captionStyle, () => {
+    const label = choice("caption-style", style.id, style.label, style.id === captionStyle, () => {
       captionStyle = style.id;
       rebuild();
-    }));
+    });
+    label.title = style.note;
+    captionBox.append(label);
   }
   for (const item of TRANSITIONS) {
     transitionBox.append(choice("transition", item.id, item.label, item.id === transition, () => {
@@ -282,9 +285,9 @@ export function mountTool(root: HTMLElement): void {
       return;
     }
     for (const photo of photos) URL.revokeObjectURL(photo.url);
-    const next = images.slice(0, 3);
+    const next = images.slice(0, MAX_PHOTOS);
     photos = next.map((file) => ({ file, url: URL.createObjectURL(file) }));
-    if (images.length > 3) say("Using the first 3 photos.");
+    if (images.length > MAX_PHOTOS) say(`Using the first ${MAX_PHOTOS} photos.`);
     renderThumbs();
     clearJob();
     rebuild();
@@ -374,6 +377,8 @@ export function mountTool(root: HTMLElement): void {
       for (const seg of next.segments) {
         const edited = captionEdits.get(editKey(seg));
         if (edited != null) seg.caption = edited;
+        const lookId = lookEdits.get(editKey(seg));
+        if (lookId && lookById(lookId)) assignLook(seg, lookId, next.seed);
       }
       cutlist = next;
     } catch (err) {
@@ -536,13 +541,106 @@ export function mountTool(root: HTMLElement): void {
     });
   }
 
+  function lookCell(seg: CutSegment): HTMLTableCellElement {
+    const cell = document.createElement("td");
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", `Look for segment ${seg.id}`);
+    for (const look of LOOKS) {
+      const option = document.createElement("option");
+      option.value = look.id;
+      option.textContent = look.label;
+      select.append(option);
+    }
+    if (!LOOKS.some((look) => look.id === seg.look)) {
+      const extra = document.createElement("option");
+      extra.value = seg.look;
+      extra.textContent = LOOK_LABEL.get(seg.look) ?? seg.look;
+      select.append(extra);
+    }
+    select.value = seg.look;
+    select.addEventListener("change", () => {
+      void commitLook(seg, select);
+    });
+    cell.append(select);
+    return cell;
+  }
+
+  async function commitLook(seg: CutSegment, select: HTMLSelectElement): Promise<void> {
+    const lookId = select.value;
+    const previous = seg.look;
+    if (!lookById(lookId) || lookId === previous) {
+      select.value = previous;
+      return;
+    }
+    const base = cutlist?.seed ?? Number(seedInput.value);
+    assignLook(seg, lookId, Number.isFinite(base) ? base : 1);
+    lookEdits.set(editKey(seg), lookId);
+    renderSheet();
+    const remote = jobSegmentFor(seg);
+    if (!job || !remote) return;
+    select.disabled = true;
+    const previousExport = exportState;
+    exportState = null;
+    window.clearInterval(exportTimer);
+    try {
+      stopWatch?.();
+      stopWatch = null;
+      const updated = await patchSegmentLook(job.id, seg.id, lookId);
+      job = updated;
+      const fromServer = updated.cutlist.segments.find((item) => item.id === seg.id);
+      if (fromServer) {
+        seg.look = fromServer.look;
+        seg.prompt = fromServer.prompt;
+        seg.negativePrompt = fromServer.negativePrompt;
+        seg.seed = fromServer.seed;
+        select.value = fromServer.look;
+        lookEdits.set(editKey(seg), fromServer.look);
+      }
+      renderJob();
+      if (updated.status === "running" || updated.status === "queued") {
+        stopWatch = watchJob(updated.id, (next) => {
+          job = next;
+          const live = cutlist?.segments.find((item) => item.id === seg.id);
+          const serverCut = next.cutlist.segments.find((item) => item.id === seg.id);
+          if (live && serverCut) {
+            live.look = serverCut.look;
+            live.prompt = serverCut.prompt;
+            live.negativePrompt = serverCut.negativePrompt;
+            live.seed = serverCut.seed;
+          }
+          renderJob();
+        }, (message) => say(message));
+      }
+    } catch (err) {
+      assignLook(seg, previous, Number.isFinite(base) ? base : 1);
+      lookEdits.set(editKey(seg), previous);
+      select.value = previous;
+      exportState = previousExport;
+      renderSheet();
+      renderExport();
+      if (previousExport?.status === "running") pollExport();
+      say(err instanceof Error ? err.message : "Could not change the look.");
+    } finally {
+      select.disabled = false;
+    }
+  }
+
+  function jobSegmentFor(seg: CutSegment): JobResponse["segments"][number] | undefined {
+    if (!job) return undefined;
+    const remote = job.segments.find((item) => item.id === seg.id);
+    const cut = job.cutlist.segments.find((item) => item.id === seg.id);
+    if (!remote || !cut) return undefined;
+    if (Math.abs(cut.start - seg.start) > 0.001 || Math.abs(cut.end - seg.end) > 0.001) return undefined;
+    return remote;
+  }
+
   function renderTable(): void {
     tbody.replaceChildren();
     if (!cutlist) {
       const row = document.createElement("tr");
       const cell = document.createElement("td");
       cell.colSpan = 8;
-      cell.textContent = "Add 1–3 photos and a song. The cut list lands here.";
+      cell.textContent = `Add 1–${MAX_PHOTOS} photos and a song. The cut list lands here.`;
       row.append(cell);
       tbody.append(row);
       return;
@@ -555,9 +653,9 @@ export function mountTool(root: HTMLElement): void {
         td(formatTimecode(seg.end)),
         td(String(seg.frames)),
         td("ABC"[seg.photoIndex] ?? String(seg.photoIndex + 1)),
-        td(LOOK_LABEL.get(seg.look) ?? seg.look),
-        td(seg.transition),
       );
+      row.append(lookCell(seg));
+      row.append(td(seg.transition));
       const input = document.createElement("input");
       input.type = "text";
       input.maxLength = 48;
@@ -860,6 +958,14 @@ function must<T extends Element>(root: ParentNode, selector: string): T {
   const node = root.querySelector(selector);
   if (!node) throw new Error(`Missing ${selector}`);
   return node as T;
+}
+
+function assignLook(seg: CutSegment, lookId: string, baseSeed: number): void {
+  const prompt = renderPrompt(lookId);
+  seg.look = lookId;
+  seg.prompt = prompt.positive;
+  seg.negativePrompt = prompt.negative;
+  seg.seed = segmentSeed(Math.round(baseSeed), seg.index, lookId, seg.photoIndex);
 }
 
 function td(text: string): HTMLTableCellElement {

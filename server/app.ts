@@ -4,6 +4,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import multer from "multer";
 import type { HealthResponse, JobResponse, JobSegmentView } from "../shared/api-types";
 import { parseCutlist } from "../shared/cutlist";
+import { MAX_PHOTOS } from "../shared/looks";
 import { displayPath, loadConfig, redact, type Config } from "./config";
 import { buildAdapter } from "./generation";
 import { GenerationError } from "./generation/errors";
@@ -11,7 +12,7 @@ import type { GenerationAdapter } from "./generation/types";
 import { loadWorkflowFiles, workflowReady, type LoadedWorkflow } from "./generation/workflow";
 import { Runner } from "./jobs/runner";
 import { DeploymentController } from "./deploy/controller";
-import { JobStore, type StoredJob, type StoredSegment } from "./jobs/store";
+import { editSegment, JobStore, type StoredJob, type StoredSegment } from "./jobs/store";
 import { resolveBinaries, type Binaries } from "./export/binaries";
 import { ExportError, ExportManager } from "./export/manager";
 
@@ -54,7 +55,7 @@ export async function createApp(opts: AppOptions = {}): Promise<AppHandle> {
   await store.load();
   const deployment = opts.deployment === null
     ? undefined
-    : opts.deployment ?? (cfg.backend === "comfy-cloud" && cfg.deploymentId && cfg.comfyApiKey
+    : opts.deployment ?? (cfg.backend === "comfy-cloud" && cfg.deployControl === "manage" && cfg.deploymentId && cfg.comfyApiKey
       ? new DeploymentController({
         apiKey: cfg.comfyApiKey,
         deploymentId: cfg.deploymentId,
@@ -105,11 +106,15 @@ export async function createApp(opts: AppOptions = {}): Promise<AppHandle> {
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof multer.MulterError) {
-      res.status(400).json({ error: "Upload was rejected. Use 1 to 3 images, 25 MB each." });
+      res.status(400).json({ error: `Upload was rejected. Use 1 to ${MAX_PHOTOS} images, 25 MB each.` });
       return;
     }
     if (err instanceof ExportError) {
       if (!res.headersSent) res.status(err.status).json({ error: err.message });
+      return;
+    }
+    if (isBadJson(err)) {
+      if (!res.headersSent) res.status(400).json({ error: "Request JSON was invalid." });
       return;
     }
     const message = redact(err instanceof Error ? err.message : "Request failed.", cfg.comfyApiKey);
@@ -144,7 +149,7 @@ function apiRouter(deps: {
   const router = express.Router();
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 32 * 1024 * 1024, files: 4, fields: 8, fieldSize: 2 * 1024 * 1024 },
+    limits: { fileSize: 32 * 1024 * 1024, files: MAX_PHOTOS + 1, fields: 8, fieldSize: 2 * 1024 * 1024 },
   });
 
   router.get("/health", wrap(async (_req, res) => {
@@ -195,7 +200,7 @@ function apiRouter(deps: {
   router.post(
     "/jobs",
     upload.fields([
-      { name: "photos", maxCount: 3 },
+      { name: "photos", maxCount: MAX_PHOTOS },
       { name: "audio", maxCount: 1 },
     ]),
     wrap(async (req, res) => {
@@ -368,6 +373,40 @@ function apiRouter(deps: {
     res.send(JSON.stringify(job.cutlist, null, 2));
   }));
 
+  router.patch("/jobs/:id/segments/:segmentId", express.json({ limit: "32kb" }), wrap(async (req, res) => {
+    const job = mustJob(store, req.params.id);
+    if (!job) {
+      res.status(404).json({ error: "Job not found." });
+      return;
+    }
+    const segmentId = req.params.segmentId ?? "";
+    if (!SEGMENT_ID.test(segmentId)) {
+      res.status(400).json({ error: "Bad segment id." });
+      return;
+    }
+    const look = (req.body as { look?: unknown } | null | undefined)?.look;
+    if (typeof look !== "string" || look.length === 0) {
+      res.status(400).json({ error: "Look is required." });
+      return;
+    }
+    let requeued = false;
+    try {
+      requeued = editSegment(job, segmentId, { look }).requeued;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Look edit was rejected.";
+      const missing = message.startsWith("Unknown segment");
+      res.status(missing ? 404 : 400).json({ error: message });
+      return;
+    }
+    await store.save(job);
+    if (requeued) {
+      void runner.run(job.id).catch((err) => {
+        console.error(`[dropcut] job ${job.id} failed: ${redact(err instanceof Error ? err.message : "error", cfg.comfyApiKey)}`);
+      });
+    }
+    res.json(toView(job));
+  }));
+
   router.get("/jobs/:id/segments/:segmentId/file", wrap(async (req, res) => {
     const job = mustJob(store, req.params.id);
     if (!job) {
@@ -429,6 +468,14 @@ function segmentView(jobId: string, seg: StoredSegment): JobSegmentView {
       ? `/api/jobs/${jobId}/segments/${seg.id}/file?v=${seg.attempt}`
       : undefined,
   };
+}
+
+function isBadJson(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const rec = err as { type?: string; status?: number; statusCode?: number };
+  if (rec.type === "entity.parse.failed") return true;
+  const status = rec.status ?? rec.statusCode;
+  return err instanceof SyntaxError && status === 400;
 }
 
 function mustJob(store: JobStore, id: string | undefined): StoredJob | undefined {

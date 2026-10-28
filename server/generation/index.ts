@@ -4,7 +4,7 @@ import { MockAdapter } from "./mock";
 import type { GenerationAdapter } from "./types";
 import type { LoadedWorkflow } from "./workflow";
 
-export function buildAdapter(cfg: Config, loaded: LoadedWorkflow): GenerationAdapter {
+export function buildAdapter(cfg: Config, loaded: LoadedWorkflow, fetchImpl?: typeof fetch): GenerationAdapter {
   if (cfg.backend === "mock") {
     return new MockAdapter({ failRate: cfg.mockFailRate, latencyMs: cfg.mockLatencyMs });
   }
@@ -13,5 +13,6 @@ export function buildAdapter(cfg: Config, loaded: LoadedWorkflow): GenerationAda
     baseUrl: cfg.comfyBaseUrl,
     version: cfg.comfyApiVersion,
     loaded,
+    fetchImpl,
   });
 }
