@@ -104,7 +104,7 @@ Base URL defaults to `https://cloud.comfy.org`.
 ### This app's API
 
 - `GET /api/health` — backend, workflow problems, no secrets
-- `POST /api/jobs` — multipart `cutlist` (JSON), `photos` (1–3), optional `audio`
+- `POST /api/jobs` — multipart `cutlist` (JSON), `photos` (1–5), optional `audio`
 - `GET /api/jobs/:id` — poll
 - `GET /api/jobs/:id/events` — server-sent events
 - `POST /api/jobs/:id/retry` — optional JSON `{ segmentIds }`
