@@ -1,8 +1,18 @@
 # DropCut
 
-DropCut turns 1–5 photos and a song into a vertical 9:16 reel. The browser finds beats and drops, builds a deterministic cut list, and each segment is generated through an adapter. The default path with no API key is a local mock that draws a placeholder plate per look. With a Comfy Cloud key, the same cut list is sent to ComfyUI as an API-format workflow (LTX family, open weights).
+**Video editor? In this economy? Drop in your photos and a song, and DropCut finds the beat, animates each shot and captions it. You get a reel that's ready to post in minutes.**
 
-The interface is the Cut Sheet: editorial type, a hard grid, black, paper, and one acid accent.
+This repo is the DropCut engine: the cut-list logic, the Node API, the Comfy Cloud adapter, the ffmpeg export and the LTX workflow. The engine's own Cut Sheet UI takes 1–5 photos. The current web app (below) is a companion app that lives in a separate repo.
+
+## Companion web app (current features)
+
+- Photos plus a song become a 1080×1920 vertical reel. Each shot is rendered with the LTX image-to-video workflow on Comfy Cloud (1–10 s per shot, whole seconds, 24 fps), then stitched in the browser with ffmpeg.wasm and captioned in Anton.
+- Reel lengths: 5, 10, 15, 30 and 60 s. 5, 10 and 15 s need exactly 5 photos, 30 s takes 5–10, and 60 s needs exactly 10.
+- Song: from the chosen start point it must be at least the reel length. It is trimmed to that length with a 0.5 s fade-out. Use a 124 BPM sample song (15, 30 or 60 s) or upload your own (20 MB max). Songs never leave the browser.
+- Beat analysis runs in the browser: energy-onset detection, a tempo estimate, a beat grid and the loudest stretch as the drop. Cuts snap to the nearest grid beat and one cut lands on the drop (shots 0.35–6.5 s, whole frames). It is a heuristic: the drop is reliable, but the tempo estimate can be off on some songs, so not every cut is guaranteed to sit on a beat.
+- Per-shot look and caption. Five caption styles (Promo, On the kick, Lower third, Block, Stamp) with live previews on your own photo; caption color picker including none/transparent and custom; sizes S/M/L/XL; left, center or right alignment with automatic safe margins.
+- Reorder shots by drag or arrows, Cancel a render, retry a failed stitch without re-rendering, and only a changed shot re-renders. Same inputs give the same cut (seeded).
+- A public live demo with sample presets (cafe, gig, listing), plus a login-gated live render site for judges.
 
 ## Stack
 
@@ -179,7 +189,7 @@ Billing: queued, provisioning, starting, ready and unhealthy hold compute. Stopp
 
 ## Open TODOs
 
-- **Real workflow.** The shipped LTX graph still has to be the operator's own Export (API) graph if the placeholder flag is set. Fill in `workflows/ltx-i2v.map.json` to match that graph.
+- **Real workflow.** The shipped LTX-2.5 graph is a real export (`placeholder: false`). If you swap in your own Export (API) graph, update `workflows/ltx-i2v.map.json` to match.
 - **License.** MIT is the license. See `LICENSE`, copyright venthewise. The bundled caption font is Archivo Black under the SIL Open Font License (`server/export/ArchivoBlack-OFL.txt`). Sample media is CC0 (`samples/README.md`).
 
 Do not commit `.env`, `outputs/`, or API keys.
