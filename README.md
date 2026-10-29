@@ -2,17 +2,51 @@
 
 **Video editor? In this economy? Drop in your photos and a song, and DropCut finds the beat, animates each shot and captions it. You get a reel that's ready to post in minutes.**
 
-This repo is the DropCut engine: the cut-list logic, the Node API, the Comfy Cloud adapter, the ffmpeg export and the LTX workflow. The engine's own Cut Sheet UI takes 1–5 photos. The current web app (below) is a companion app that lives in a separate repo.
+**Try it:** [public live demo](https://dropcut-demo-eight.vercel.app) · [judges' render site](https://dropcut-judges.vercel.app) (login-gated, judges only)
 
-## Companion web app (current features)
+## What DropCut does
 
-- Photos plus a song become a 1080×1920 vertical reel. Each shot is rendered with the LTX image-to-video workflow on Comfy Cloud (1–10 s per shot, whole seconds, 24 fps), then stitched in the browser with ffmpeg.wasm and captioned in Anton.
-- Reel lengths: 5, 10, 15, 30 and 60 s. 5, 10 and 15 s need exactly 5 photos, 30 s takes 5–10, and 60 s needs exactly 10.
-- Song: from the chosen start point it must be at least the reel length. It is trimmed to that length with a 0.5 s fade-out. Use a 124 BPM sample song (15, 30 or 60 s) or upload your own (20 MB max). Songs never leave the browser.
-- Beat analysis runs in the browser: energy-onset detection, a tempo estimate, a beat grid and the loudest stretch as the drop. Cuts snap to the nearest grid beat and one cut lands on the drop (shots 0.35–6.5 s, whole frames). It is a heuristic: the drop is reliable, but the tempo estimate can be off on some songs, so not every cut is guaranteed to sit on a beat.
-- Per-shot look and caption. Five caption styles (Promo, On the kick, Lower third, Block, Stamp) with live previews on your own photo; caption color picker including none/transparent and custom; sizes S/M/L/XL; left, center or right alignment with automatic safe margins.
-- Reorder shots by drag or arrows, Cancel a render, retry a failed stitch without re-rendering, and only a changed shot re-renders. Same inputs give the same cut (seeded).
-- A public live demo with sample presets (cafe, gig, listing), plus a login-gated live render site for judges.
+DropCut is our entry for the Comfy **Open Source Higgsfield** competition. The current app is [venthewise/dropcut-judges](https://github.com/venthewise/dropcut-judges), which powers the judges' site and the public demo. Its features:
+
+- **Reel lengths:** 5, 10, 15, 30 and 60 s.
+- **Photo rules:** 5, 10 and 15 s reels need exactly 5 photos, 30 s takes 5–10, and 60 s needs exactly 10. Reorder them by dragging.
+- **Finds the beat:** the song is analyzed in the browser (energy onsets, a tempo estimate and a beat grid, with the loudest stretch marked as the drop). Cuts snap to the nearest grid beat and one cut lands on the drop. It's a heuristic: the drop is reliable, but the tempo estimate can be off on some songs, so not every cut is guaranteed to sit exactly on a beat.
+- **Every photo comes to life:** each photo is animated into its own clip by the LTX-2.5 22B image-to-video workflow on ComfyUI Cloud (1–10 s per shot, whole seconds, 24 fps, 9:16).
+- **Captions your way:** caption style, color (including none) and size controls, with live previews on your own photo.
+- **Music handled:** the song is trimmed to the reel length from a start point you choose, with a 0.5 s fade-out. Use a 124 BPM sample song (15, 30 or 60 s) or upload your own (20 MB max).
+- **Export:** a 9:16 1080×1920 MP4 with burned-in captions, stitched in the browser.
+
+## What's in this repo
+
+This repo is the DropCut engine: the cut-list logic, the Node API, the Comfy Cloud adapter, the ffmpeg export and the LTX-2.5 workflow. It came first, and it differs from the current app in a few ways:
+
+- Its own Cut Sheet UI and `POST /api/jobs` take **1–5 photos** (`MAX_PHOTOS = 5` in `shared/looks.ts`). The 10-photo and 60 s reels are in the current app only.
+- Cuts follow the song's detected drops and beats over a trimmed window you set; there are no fixed 5/10/15/30/60 s length presets.
+- The bundled sample is a synthesized 16 s, 120 BPM song (`samples/`). The 124 BPM sample songs ship with the current app.
+- Export is server-side ffmpeg (default 30 fps, 50 ms audio fades), not the in-browser stitch.
+
+The ComfyUI workflow is the same in both: `workflows/ltx-i2v.api.json`.
+
+## Run it in ComfyUI Cloud (for judges)
+
+1. Open `workflows/ltx-i2v.api.json` in ComfyUI Cloud.
+2. Run it once per photo, setting:
+   - node `395` **Load First Frame**: the photo
+   - node `398:376` **Prompt**: the motion prompt
+   - node `398:362` **Duration**: seconds per shot (1–10, table below)
+   - node `398:361` **Frame Rate**: leave at 24
+   - node `403` **Resolution Selector**: set to `9:16 (Portrait Widescreen)` (the export is saved at 16:9; DropCut sets 9:16 automatically)
+3. The clip comes out of node `75` (**Save Video**).
+
+| Reel | Photos × seconds per shot |
+| --- | --- |
+| 5 s | 5 × 1 s |
+| 10 s | 5 × 2 s |
+| 15 s | 5 × 3 s |
+| 30 s | 5 × 6 s or 10 × 3 s |
+| 60 s | 10 × 6 s |
+
+ComfyUI outputs only the clips. DropCut does the beat-synced stitching, captions and music.
 
 ## Stack
 
@@ -31,7 +65,7 @@ server/                 HTTP API, job store, generation adapters
 server/generation/      GenerationAdapter, mock, Comfy Cloud, workflow map
 server/export/          ffmpeg assembly, ASS captions, binary detection
 samples/                CC0 sample song and three abstract plates
-workflows/              API-format ComfyUI graph + node map (placeholder)
+workflows/              real LTX-2.5 image-to-video workflow (API format) + its node map
 docs/                   Comfy API v2 spec and notes
 outputs/                job manifests, segment files, and MP4 exports (gitignored)
 scripts/smoke.ts        mock job against a running server
@@ -84,7 +118,7 @@ COMFY_WORKFLOW=workflows/ltx-i2v.api.json
 COMFY_WORKFLOW_MAP=workflows/ltx-i2v.map.json
 ```
 
-3. Export your real LTX image-to-video workflow from Comfy Cloud with **Export (API)** and replace `workflows/ltx-i2v.api.json`. Fill `workflows/ltx-i2v.map.json` so each binding names the node id and input that should receive the still, positive prompt, negative prompt, seed, frame count, width, height, and fps, plus the output node.
+3. The shipped `workflows/ltx-i2v.api.json` is the real LTX-2.5 workflow, already bound by `workflows/ltx-i2v.map.json`. To use your own graph instead, export it from Comfy Cloud with **Export (API)**, replace the file, and update the map so each binding names the node id and input for the still, positive prompt, negative prompt, seed, duration, fps and aspect, plus the output node.
 
 The key is read only on the server. It is never sent to the browser and is redacted from errors. The badge reads **COMFY CLOUD**. The shipped graph is the real LTX-2.5 image-to-video workflow (`placeholder: false` in `workflows/ltx-i2v.map.json`), so cloud jobs run as soon as the key is set.
 
