@@ -86,7 +86,7 @@ COMFY_WORKFLOW_MAP=workflows/ltx-i2v.map.json
 
 3. Export your real LTX image-to-video workflow from Comfy Cloud with **Export (API)** and replace `workflows/ltx-i2v.api.json`. Fill `workflows/ltx-i2v.map.json` so each binding names the node id and input that should receive the still, positive prompt, negative prompt, seed, frame count, width, height, and fps, plus the output node.
 
-The key is read only on the server. It is never sent to the browser and is redacted from errors. The badge reads **COMFY CLOUD**. The shipped graph is a placeholder: `/api/health` reports that, and the API refuses cloud jobs until the placeholder flag is cleared by a real export. The process still starts.
+The key is read only on the server. It is never sent to the browser and is redacted from errors. The badge reads **COMFY CLOUD**. The shipped graph is the real LTX-2.5 image-to-video workflow (`placeholder: false` in `workflows/ltx-i2v.map.json`), so cloud jobs run as soon as the key is set.
 
 `COMFY_CLOUD_API_VERSION=v1` uses the deprecated ComfyUI-compatible endpoints (`X-API-Key`). v2 is the default (`Authorization: Bearer`).
 
