@@ -2,15 +2,17 @@
 
 **Video editor? In this economy? Drop in your photos and a song, and DropCut finds the beat, animates each shot and captions it. You get a reel that's ready to post in minutes.**
 
-**Try it:** [public live demo](https://dropcut-demo-eight.vercel.app) · [judges' render site](https://dropcut-judges.vercel.app) (login-gated, judges only)
+**Competition entry:** [venthewise/dropcut-judges](https://github.com/venthewise/dropcut-judges), the full app, with setup steps in its README.
+
+**Try it:** [public live demo](https://dropcut.moordecai.com/) · [judges' render site](https://dropcut-judges.moordecai.com/) (login-gated, judges only)
 
 ## What DropCut does
 
-DropCut is our entry for the Comfy **Open Source Higgsfield** competition. The current app is [venthewise/dropcut-judges](https://github.com/venthewise/dropcut-judges), which powers the judges' site and the public demo. Its features:
+DropCut is our entry for the Comfy **Open Source Higgsfield** competition. The entry repo is [venthewise/dropcut-judges](https://github.com/venthewise/dropcut-judges): the full app behind the judges' site, with the workflow, the setup guide and every feature below. This repo is the engine it grew from. The app's features:
 
 - **Reel lengths:** 5, 10, 15, 30 and 60 s.
 - **Photo rules:** 5, 10 and 15 s reels need exactly 5 photos, 30 s takes 5–10, and 60 s needs exactly 10. Reorder them by dragging.
-- **Finds the beat:** the song is analyzed in the browser (energy onsets, a tempo estimate and a beat grid, with the loudest stretch marked as the drop). Cuts snap to the nearest grid beat and one cut lands on the drop. It's a heuristic: the drop is reliable, but the tempo estimate can be off on some songs, so not every cut is guaranteed to sit exactly on a beat.
+- **Finds the beat:** the song is analyzed in the browser (energy onsets, a tempo estimate and a beat grid, with the loudest stretch marked as the drop). Cuts snap to the nearest grid beat and one cut lands on the drop. The tempo estimate checks double, half and ¾-time alternatives against the kick drum, so the bundled songs read their true 124 BPM.
 - **Every photo comes to life:** each photo is animated into its own clip by the LTX-2.5 22B image-to-video workflow on ComfyUI Cloud (1–10 s per shot, whole seconds, 24 fps, 9:16).
 - **Captions your way:** caption style, color (including none) and size controls, with live previews on your own photo.
 - **Music handled:** the song is trimmed to the reel length from a start point you choose, with a 0.5 s fade-out. Use a 124 BPM sample song (15, 30 or 60 s) or upload your own (20 MB max).
